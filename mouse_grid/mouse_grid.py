@@ -3,13 +3,13 @@
 from talon import Module, Context, app, canvas, screen, ui, ctrl, cron
 from talon.skia import Shader, Color, Rect
 from talon_plugins import eye_mouse, eye_zoom_mouse
+from typing import Union
 
 import math, time
 
 import typing
 
 mod = Module()
-
 shimmer_effect_enabled = mod.setting(
     "grid_shimmer_effect_enabled",
     type=bool,
@@ -63,7 +63,8 @@ class MouseSnapNine:
         self.active = False
         self.moving = False
         self.count = 0
-        self.was_eye_tracking = False
+        self.was_control_mouse_active = False
+        self.was_zoom_mouse_active = False
 
     #     tap.register(tap.MMOVE, self.on_move)
     #
@@ -83,9 +84,10 @@ class MouseSnapNine:
             return
         # noinspection PyUnresolvedReferences
         if eye_zoom_mouse.zoom_mouse.enabled:
-            return
+            self.was_zoom_mouse_active = True
+            eye_zoom_mouse.toggle_zoom_mouse(False)
         if eye_mouse.control_mouse.enabled:
-            self.was_eye_tracking = True
+            self.was_control_mouse_active = True
             eye_mouse.control_mouse.toggle()
         if self.mcanvas is not None:
             print("unregistering a canvas")
@@ -93,14 +95,19 @@ class MouseSnapNine:
         self.mcanvas.register("draw", self.draw)
         print("grid activating")
         self.active = True
+        return True
 
     def stop(self, *_):
         if not shimmer_effect_enabled.get():
             self.mcanvas.unregister("draw", self.draw)
         self.active = False
-        if self.was_eye_tracking and not eye_mouse.control_mouse.enabled:
+        if self.was_control_mouse_active and not eye_mouse.control_mouse.enabled:
             eye_mouse.control_mouse.toggle()
-        self.was_eye_tracking = False
+        if self.was_zoom_mouse_active and not eye_zoom_mouse.zoom_mouse.enabled:
+            eye_zoom_mouse.toggle_zoom_mouse(True)
+
+        self.was_zoom_mouse_active = False
+        self.was_control_mouse_active = False
 
     def draw(self, canvas):
         if self.wants_capture == 1:
@@ -350,9 +357,9 @@ class MouseSnapNine:
             self.mcanvas = canvas.Canvas.from_screen(self.screen)
             # self.mcanvas.register("draw", self.draw)
             if eye_mouse.control_mouse.enabled:
-                self.was_eye_tracking = True
+                self.was_control_mouse_active = True
                 eye_mouse.control_mouse.toggle()
-            if self.was_eye_tracking and self.screen == ui.screens()[0]:
+            if self.was_control_mouse_active and self.screen == ui.screens()[0]:
                 # if self.screen == ui.screens()[0]:
                 self.narrow_to_pos(x, y)
                 self.narrow_to_pos(x, y)
@@ -398,8 +405,8 @@ mg = MouseSnapNine()
 class GridActions:
     def grid_activate():
         """Brings up a/the grid (mouse grid or otherwise)"""
-        ctx.tags = ["user.mouse_grid_showing"]
-        mg.start()
+        if mg.start():
+            ctx.tags = ["user.mouse_grid_showing"]
 
     def grid_place_window():
         """Places the grid on the currently active window"""
@@ -421,10 +428,10 @@ class GridActions:
         for d in digit_list:
             GridActions.grid_narrow(int(d))
 
-    def grid_narrow(digit: int):
+    def grid_narrow(digit: Union[int, str]):
         """Choose a field of the grid and narrow the selection down"""
         # print("narrow one", repr(digit))
-        mg.narrow(digit)
+        mg.narrow(int(digit))
 
     def grid_go_back():
         """Sets the grid state back to what it was before the last command"""
@@ -445,4 +452,4 @@ def check_shimmer_setting_at_startup():
         mg.stop()
 
 
-cron.after("100ms", check_shimmer_setting_at_startup)
+app.register("launch", check_shimmer_setting_at_startup)
